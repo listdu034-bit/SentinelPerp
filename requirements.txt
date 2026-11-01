@@ -1,0 +1,11 @@
+fastapi>=0.100.0
+uvicorn[standard]
+cryptofeed>=2.4.0,<3
+ccxt>=4.0.0,<5
+asyncpg
+redis>=4.5.0
+pydantic>=2.0.0
+pydantic-settings
+structlog
+tenacity
+python-dotenv
