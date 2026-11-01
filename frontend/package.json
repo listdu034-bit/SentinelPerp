@@ -1,0 +1,37 @@
+{
+  "name": "sentinelperp-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ant-design/charts": "^2.0.0",
+    "@ant-design/icons": "^5.2.6",
+    "@tanstack/react-query": "^5.14.0",
+    "antd": "^5.12.0",
+    "axios": "^1.6.2",
+    "date-fns": "^3.0.0",
+    "lightweight-charts": "^4.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "react-use-websocket": "^4.8.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "axios-mock-adapter": "^2.1.0",
+    "jsdom": "^26.0.0",
+    "typescript": "~5.7.3",
+    "vite": "^6.4.1",
+    "vitest": "^4.1.12"
+  }
+}

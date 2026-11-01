@@ -82,3 +82,60 @@ TEST_DATABASE_URL=postgresql://... TEST_REDIS_URL=redis://localhost:6379/15 \
 实网验收运行 Compose 后，检查 `collector_status` 的连接数和各类 `last_message`、
 `SELECT count(*) FROM trades;`、`SELECT * FROM quality_logs ORDER BY time DESC LIMIT 10;`
 以及 `redis-cli GET latest:trade:BTC-USDT-SWAP`。数据库初始化/依赖测试不能代替此实网验收。
+
+## React Web 控制台
+
+```bash
+cd frontend
+npm ci
+npm run dev                 # http://localhost:5173
+npm run build
+npm test
+```
+
+使用 React 18、Ant Design 5、TanStack Query 5、React Router 6、axios、date-fns、
+Ant Design Charts 和 Lightweight Charts 4。HTTP 查询共享缓存，10 秒内视为新鲜，
+每 30 秒自动刷新，失败最多重试 2 次（除 429 外的 4xx 不重试）。切回窗口自动校验。
+
+页面：`/status` 系统统计与采集表；`/rankings` 24h 榜单；
+`/markets/BTC-USDT-SWAP` K 线（1m/5m/1h/1d）；`/quality` 事件统计和服务端分页日志。
+时间标签使用浏览器本地时间，K 线使用 UTC。统计图使用全部历史质量日志，
+系统质量评分使用后端 24h 窗口；两者口径不同。
+
+API 契约对照第二阶段后端 `backend/api/schemas.py`：
+`GET /api/v1/status`、`GET /api/v1/candles/{symbol}?interval=1m&size=500`、
+`GET /api/v1/quality/summary`、`GET /api/v1/quality/logs?page=1&size=20`。
+分页格式为 `{items,total,page,size,pages}`。榜单使用 `WS /ws/market` 的
+`{type:"market",time,gainers,losers,status}`；`react-use-websocket` 管理指数退避重连，
+收到 `ping` 回复 `pong`，市场快照写入 Query 缓存。断线保留缓存并显示连接告警。
+无真实数据时显示空态或接口错误。
+
+开发默认由 Vite 将 `/api`、`/ws` 代理到 `http://127.0.0.1:8000`。
+可复制 `frontend/.env.example` 为 `frontend/.env.local`，设置 `API_PROXY_TARGET`。
+直接跨域连接可设置 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL`；后端必须允许页面的
+Origin（包含协议、主机、端口），生产 WebSocket 连接也会校验 Origin。
+
+```bash
+docker compose up --build frontend
+# http://localhost:8080
+```
+
+`docker/frontend.Dockerfile` 使用 Node multi-stage 构建和 nginx:alpine 提供静态文件，
+支持 SPA 深链接以及 HTTP/WebSocket 同源反向代理。nginx 的运行时环境变量
+`API_UPSTREAM` 默认是 `api:8000`，Compose 可用 `FRONTEND_API_UPSTREAM` 覆盖。
+**需先集成并启动第二阶段 A 的 API 服务**；第一阶段的 `backend` 服务仅是采集器。
+API 与 frontend 应位于相同 Docker 网络，并在 API 的 CORS/Origin 配置中加入
+`http://localhost:8080`（或实际访问源）。外部 API 的 upstream 只填 `主机:端口`。
+
+第二阶段 API 默认 Origin 与 Vite 端口不同，启动 API 前设置：
+
+```dotenv
+API_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:8080","http://127.0.0.1:8080"]
+```
+
+若修改开发或容器端口，请同步该列表。Vite HTTP 代理不需要浏览器 CORS，
+但 WebSocket 握手保留原始 Origin，因此必须配置。
+
+依赖审计：React Router 6 当前仍有中等级上游告警，npm 建议升级到 v7；本阶段按
+指定技术栈保留 v6。控制台使用静态路由、编码后的合约路径和 BrowserRouter，
+未使用 SSR hydration。后续升级路由主版本时需重新验证导航行为。
