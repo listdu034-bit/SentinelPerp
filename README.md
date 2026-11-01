@@ -87,3 +87,78 @@ TEST_DATABASE_URL=postgresql://... TEST_REDIS_URL=redis://localhost:6379/15 \
 
 FastAPI REST, WebSocket, health and Prometheus endpoints are available through
 the `api` Compose service. See [API usage and configuration](docs/API.md).
+
+## React Web 控制台
+
+```bash
+cd frontend
+npm ci
+npm run dev                 # http://localhost:5173
+npm run build
+npm test
+```
+
+使用 React 18、Ant Design 5、TanStack Query 5、React Router 6、axios、date-fns、
+Ant Design Charts 和 Lightweight Charts 4。HTTP 查询共享缓存，10 秒内视为新鲜，
+每 30 秒自动刷新，失败最多重试 2 次（除 429 外的 4xx 不重试）。切回窗口自动校验。
+
+页面：`/status` 系统统计与采集表；`/rankings` 24h 榜单；
+`/markets/BTC-USDT-SWAP` K 线（1m/5m/1h/1d）；`/quality` 事件统计和服务端分页日志。
+时间标签使用浏览器本地时间，K 线使用 UTC。统计图使用全部历史质量日志，
+系统质量评分使用后端 24h 窗口；两者口径不同。
+
+API 契约对照第二阶段后端 `backend/api/schemas.py`：
+`GET /api/v1/status`、`GET /api/v1/candles/{symbol}?interval=1m&size=500`、
+`GET /api/v1/quality/summary`、`GET /api/v1/quality/logs?page=1&size=20`。
+分页格式为 `{items,total,page,size,pages}`。榜单使用 `WS /ws/market` 的
+`{type:"market",time,gainers,losers,status}`；`react-use-websocket` 管理指数退避重连，
+收到 `ping` 回复 `pong`，市场快照写入 Query 缓存。断线保留缓存并显示连接告警。
+无真实数据时显示空态或接口错误。
+
+开发默认由 Vite 将 `/api`、`/ws` 代理到 `http://127.0.0.1:8000`。
+可复制 `frontend/.env.example` 为 `frontend/.env.local`，设置 `API_PROXY_TARGET`。
+直接跨域连接可设置 `VITE_API_BASE_URL` 和 `VITE_WS_BASE_URL`；后端必须允许页面的
+Origin（包含协议、主机、端口），生产 WebSocket 连接也会校验 Origin。
+
+```bash
+docker compose up --build frontend
+# http://localhost:8080
+```
+
+`docker/frontend.Dockerfile` 使用 Node multi-stage 构建和 nginx:alpine 提供静态文件，
+支持 SPA 深链接以及 HTTP/WebSocket 同源反向代理。nginx 的运行时环境变量
+`API_UPSTREAM` 默认是 `api:8000`，Compose 可用 `FRONTEND_API_UPSTREAM` 覆盖。
+Compose 中 `api` 服务提供第二阶段 A 的接口；`backend` 服务负责采集。
+API 与 frontend 应位于相同 Docker 网络，并在 API 的 CORS/Origin 配置中加入
+`http://localhost:8080`（或实际访问源）。外部 API 的 upstream 只填 `主机:端口`。
+
+`.env.example` 已包含默认控制台端口；如使用已有 `.env`，请在启动 API 前设置：
+
+```dotenv
+API_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:8080","http://127.0.0.1:8080"]
+```
+
+若修改开发或容器端口，请同步该列表。Vite HTTP 代理不需要浏览器 CORS，
+但 WebSocket 握手保留原始 Origin，因此必须配置。
+
+依赖审计：React Router 6 当前仍有中等级上游告警，npm 建议升级到 v7；本阶段按
+指定技术栈保留 v6。控制台使用静态路由、编码后的合约路径和 BrowserRouter，
+未使用 SSR hydration。后续升级路由主版本时需重新验证导航行为。
+
+### 前后端真实集成验收
+
+提供可选联调测试 `frontend/src/live.integration.test.tsx`（默认测试时跳过），
+使用真实 nginx → FastAPI → TimescaleDB / Redis，不使用 API mock。
+在**空的、可丢弃的测试数据库**初始化 `scripts/init_db.sql` 后，加载
+`frontend/tests/acceptance.sql`，并清除测试 Redis 的 `api:status` 缓存。
+不要向生产或采集数据库加载验收数据。测试 API 的 `API_CORS_ORIGINS` 需包含
+jsdom 使用的 `http://localhost:3000`。
+
+```bash
+# 在已准备好的隔离验收环境中运行；URL 指向 nginx frontend 服务
+CONSOLE_TEST_URL=http://127.0.0.1:5184 npm run test:integration --prefix frontend
+```
+
+测试覆盖：120 根 K 线和 5m/1h/1d 聚合、质量统计、严重程度过滤及服务端分页、
+真实状态查询的缓存复用和 30 秒轮询，以及通过 nginx WebSocket 升级的榜单初始快照
+和后续推送。测试约需一分钟，必须使用相同验收数据集。

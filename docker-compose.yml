@@ -59,5 +59,16 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    environment:
+      API_UPSTREAM: ${FRONTEND_API_UPSTREAM:-api:8000}
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
 volumes:
   timescale-data:
