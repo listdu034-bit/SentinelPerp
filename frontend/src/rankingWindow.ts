@@ -20,7 +20,10 @@ export function windowChange(candles: CandleResponse[], hours: number) {
     return null;
   return (latest.close / start.open - 1) * 100;
 }
-export function useRankingWindow(rows: Pick<MarketRow, "symbol">[], timeframe: Window) {
+export function useRankingWindow(
+  rows: Pick<MarketRow, "symbol">[],
+  timeframe: Window,
+) {
   const symbols = [...new Set(rows.map((row) => row.symbol))].sort();
   return useQuery({
     queryKey: ["ranking-window", timeframe, symbols],

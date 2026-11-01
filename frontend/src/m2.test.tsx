@@ -11,7 +11,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import MockAdapter from "axios-mock-adapter";
-import { m2Http } from "./m2";
+import { analysisWindow, analysisView, m2Http } from "./m2";
 import FeatureAnalysis from "./pages/FeatureAnalysis";
 import Opportunities from "./pages/Opportunities";
 import Rankings from "./pages/Rankings";
@@ -66,18 +66,39 @@ function mount(element: React.ReactNode, path = "/") {
   clients.push(client);
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{element}</MemoryRouter>
+      <MemoryRouter
+        initialEntries={[path]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        {element}
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 const task = {
   id: "a1",
   symbol: "BTC-USDT-SWAP",
-  timeframe: "24h",
+  start_time: "2026-01-01T00:00:00Z",
+  end_time: "2026-01-02T00:00:00Z",
   status: "completed",
-  progress: 100,
+  error: null,
+  updated_at: "2026-01-02T00:00:00Z",
   created_at: "2026-01-01T00:00:00Z",
-  result: { summary: "突破形态", phases: [], turning_points: [], features: {} },
+  result: {
+    summary: "突破形态",
+    stages: [
+      {
+        stage: "markup",
+        start_time: "2026-01-01T00:00:00Z",
+        end_time: "2026-01-02T00:00:00Z",
+        confidence: 0.8,
+        evidence: "OI 上升",
+      },
+    ],
+    turning_points: [
+      { time: "2026-01-01T01:00:00Z", kind: "breakout", reason: "价格突破" },
+    ],
+  },
 };
 it("submits an analysis with the selected symbol and timeframe", async () => {
   mock.onGet("/analysis").reply(200, []);
@@ -85,12 +106,19 @@ it("submits an analysis with the selected symbol and timeframe", async () => {
   mount(<Rankings />);
   fireEvent.click(await screen.findByRole("button", { name: "添加到分析" }));
   await waitFor(() => expect(mock.history.post).toHaveLength(1));
-  expect(JSON.parse(mock.history.post[0].data)).toEqual({
-    symbol: "BTC-USDT-SWAP",
-    timeframe: "24h",
-  });
+  const body = JSON.parse(mock.history.post[0].data);
+  expect(body.symbol).toBe("BTC-USDT-SWAP");
+  expect(Object.keys(body).sort()).toEqual([
+    "end_time",
+    "start_time",
+    "symbol",
+  ]);
+  expect(Date.parse(body.end_time) - Date.parse(body.start_time)).toBe(
+    24 * 3600000,
+  );
+  expect(Date.parse(body.end_time) % 60000).toBe(0);
 });
-it("loads analysis details and saves the rated case", async () => {
+it("loads backend stages and saves only supported case fields", async () => {
   mock.onGet("/analysis").reply(200, [task]);
   mock.onGet("/analysis/a1").reply(200, task);
   mock.onPost("/cases").reply(201, { id: "c1" });
@@ -98,11 +126,12 @@ it("loads analysis details and saves the rated case", async () => {
   expect(await screen.findByText("突破形态")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "保存到特征库" }));
   await screen.findByRole("button", { name: "已保存" });
-  expect(JSON.parse(mock.history.post[0].data)).toMatchObject({
-    analysis_id: "a1",
-    rating: 3,
-    tags: [],
+  expect(JSON.parse(mock.history.post[0].data)).toEqual({
+    task_id: "a1",
+    title: "BTC-USDT-SWAP 特征案例",
+    outcome: null,
   });
+  expect(screen.getByText(/评分和标签待后端支持/)).toBeTruthy();
 });
 it("shows save failures and permits retry", async () => {
   mock.onGet("/analysis").reply(200, [task]);
@@ -119,20 +148,24 @@ it("shows save failures and permits retry", async () => {
 });
 it("filters opportunities and loads detail and similar cases", async () => {
   const opportunity = {
-    id: "o1",
     symbol: "BTC-USDT-SWAP",
-    stage: "拉升",
+    stage: "markup",
     confidence: 0.9,
-    success_rate: 0.8,
-    detected_at: task.created_at,
-    summary: "机会摘要",
-    features: { oi: 3 },
-    historical_features: { oi: 2 },
-    phases: [],
+    historical_success_rate: null,
+    labeled_cases: 0,
+    similarity: 0.9,
+    observed_at: new Date(Math.floor(Date.now() / 60000) * 60000).toISOString(),
+    expires_at: new Date(Date.now() + 600000).toISOString(),
+    matches: [],
   };
   mock.onGet("/opportunities").reply(200, [opportunity]);
-  mock.onGet("/opportunities/o1").reply(200, opportunity);
+  mock.onGet("/opportunities/BTC-USDT-SWAP").reply(200, opportunity);
   mock.onGet("/cases/search").reply(200, []);
+  mock
+    .onGet("/features/BTC-USDT-SWAP")
+    .reply(200, [
+      { symbol: "BTC-USDT-SWAP", time: opportunity.observed_at, oi: 3 },
+    ]);
   mount(<Opportunities />);
   fireEvent.mouseDown(screen.getByRole("combobox", { name: "最低置信度" }));
   fireEvent.click(await screen.findByText("80%"));
@@ -147,11 +180,22 @@ it("filters opportunities and loads detail and similar cases", async () => {
     expect(
       mock.history.get.some(
         (item) =>
-          item.url === "/cases/search" && item.params.opportunity_id === "o1",
+          item.url === "/cases/search" &&
+          item.params.symbol === "BTC-USDT-SWAP" &&
+          item.params.end_time === opportunity.observed_at &&
+          !item.params.opportunity_id,
       ),
     ).toBe(true),
   );
-  expect((await screen.findAllByText("历史案例参考值")).length).toBeGreaterThan(0);
+  expect((await screen.findAllByText("当前值")).length).toBeGreaterThan(0);
+  expect((await screen.findAllByText("未标注")).length).toBeGreaterThan(0);
+  const listRequest = mock.history.get.find(
+    (item) => item.url === "/opportunities",
+  );
+  expect(Object.keys(listRequest!.params).sort()).toEqual([
+    "limit",
+    "min_confidence",
+  ]);
 });
 it("computes the selected candle window and rejects incomplete history", () => {
   const rows = [0, 1, 2, 3].map((i) => ({
@@ -167,4 +211,27 @@ it("computes the selected candle window and rejects incomplete history", () => {
   }));
   expect(windowChange(rows, 4)).toBeCloseTo(10);
   expect(windowChange(rows.slice(1), 4)).toBeNull();
+});
+
+it("aligns analysis bounds to minutes and adapts backend stages without fabricated prices", () => {
+  const bounds = analysisWindow(
+    "BTC-USDT-SWAP",
+    "4h",
+    Date.parse("2026-11-01T12:34:56Z"),
+  );
+  expect(bounds).toEqual({
+    symbol: "BTC-USDT-SWAP",
+    start_time: "2026-11-01T08:34:00.000Z",
+    end_time: "2026-11-01T12:34:00.000Z",
+  });
+  const view = analysisView({ ...task, status: "completed" as const });
+  expect(view.result?.phases[0]).toMatchObject({
+    stage: "拉升",
+    description: "OI 上升",
+  });
+  expect(view.result?.turning_points[0]).toMatchObject({
+    kind: "breakout",
+    description: "价格突破",
+  });
+  expect(view.result?.turning_points[0]).not.toHaveProperty("price");
 });

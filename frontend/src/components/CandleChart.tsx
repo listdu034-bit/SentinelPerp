@@ -25,9 +25,11 @@ export function candleSeries(rows: CandleResponse[]) {
 export default function CandleChart({
   rows,
   phases = [],
+  currentStage,
 }: {
   rows: CandleResponse[];
   phases?: Phase[];
+  currentStage?: { time: string; label: string };
 }) {
   const container = useRef<HTMLDivElement>(null);
   const series =
@@ -75,6 +77,14 @@ export default function CandleChart({
       const candle = data.find((row) => Number(row.time) >= start);
       if (candle) markers.set(Number(candle.time), phase.stage);
     }
+    if (currentStage) {
+      const observed = Date.parse(currentStage.time) / 1000;
+      const candle = [...data]
+        .reverse()
+        .find((row) => Number(row.time) <= observed);
+      if (candle && observed - Number(candle.time) < 120)
+        markers.set(Number(candle.time), `当前识别：${currentStage.label}`);
+    }
     series.current?.setMarkers(
       [...markers]
         .sort(([a], [b]) => a - b)
@@ -91,7 +101,7 @@ export default function CandleChart({
       chartRef.current?.timeScale().fitContent();
       previousRange.current = key;
     }
-  }, [rows, phases]);
+  }, [rows, phases, currentStage]);
   return (
     <>
       <div ref={container} role="img" aria-label="市场 OHLC K 线图" />

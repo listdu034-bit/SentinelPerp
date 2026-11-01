@@ -17,7 +17,14 @@ import {
   message,
 } from "antd";
 import { errorMessage } from "../api";
-import { request, useAnalyses, useAnalysis, type Analysis } from "../m2";
+import {
+  demoMode,
+  saveCase,
+  useAnalyses,
+  useAnalysis,
+  type Analysis,
+  type SaveCase,
+} from "../m2";
 import { timestamp } from "../format";
 import QueryNotice from "../components/QueryNotice";
 import AnalysisProgress from "../components/AnalysisProgress";
@@ -30,14 +37,9 @@ export default function FeatureAnalysis() {
   const [saved, setSaved] = useState<string[]>([]);
   const [feedback, context] = message.useMessage();
   const save = useMutation({
-    mutationFn: (values: {
-      analysis_id: string;
-      rating: number;
-      tags: string[];
-      notes?: string;
-    }) => request("post", "/cases", values),
+    mutationFn: (values: SaveCase) => saveCase(values),
     onSuccess: (_, values) => {
-      setSaved((previous) => [...previous, values.analysis_id]);
+      setSaved((previous) => [...previous, values.task_id]);
       void feedback.success("案例已保存到特征库");
     },
     onError: (error) => void feedback.error(errorMessage(error)),
@@ -114,30 +116,64 @@ export default function FeatureAnalysis() {
                 <Timeline
                   items={task.result.turning_points.map((point) => ({
                     color: "red",
-                    children: `${timestamp(point.time)} · ${point.price} · ${point.description}`,
+                    children: `${timestamp(point.time)} · ${point.kind} · ${point.description}`,
                   }))}
                 />
                 <Form
                   key={id}
                   layout="vertical"
-                  initialValues={{ rating: 3, tags: [] }}
+                  initialValues={{
+                    title: `${task.symbol} 特征案例`,
+                    outcome: null,
+                    rating: demoMode ? 3 : undefined,
+                    tags: [],
+                  }}
                   onFinish={(values) =>
-                    save.mutate({ ...values, analysis_id: id })
+                    save.mutate({
+                      ...values,
+                      task_id: id,
+                      outcome: values.outcome ?? null,
+                    })
                   }
                 >
+                  <Form.Item
+                    name="title"
+                    label="案例名称"
+                    rules={[{ required: true, whitespace: true, max: 200 }]}
+                  >
+                    <Input maxLength={200} />
+                  </Form.Item>
+                  <Form.Item name="outcome" label="历史结果标注">
+                    <Select
+                      aria-label="历史结果标注"
+                      options={[
+                        { value: "success", label: "成功" },
+                        { value: "failure", label: "失败" },
+                      ]}
+                      allowClear
+                      placeholder="未标注"
+                    />
+                  </Form.Item>
+                  {!demoMode && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="当前 API 支持名称及历史结果；评分和标签待后端支持，暂不可保存。"
+                    />
+                  )}
                   <Form.Item
                     name="rating"
                     label="案例评分"
                     rules={[
                       {
-                        required: true,
+                        required: demoMode,
                         type: "number",
                         min: 1,
                         message: "请至少选择 1 星",
                       },
                     ]}
                   >
-                    <Rate />
+                    <Rate disabled={!demoMode} />
                   </Form.Item>
                   <Form.Item
                     name="tags"
@@ -145,6 +181,7 @@ export default function FeatureAnalysis() {
                     rules={[{ type: "array", max: 10 }]}
                   >
                     <Select
+                      disabled={!demoMode}
                       mode="tags"
                       aria-label="案例标签"
                       tokenSeparators={[","]}
@@ -153,9 +190,7 @@ export default function FeatureAnalysis() {
                       )}
                     />
                   </Form.Item>
-                  <Form.Item name="notes" label="备注">
-                    <Input.TextArea maxLength={1000} />
-                  </Form.Item>
+
                   <Button
                     type="primary"
                     htmlType="submit"

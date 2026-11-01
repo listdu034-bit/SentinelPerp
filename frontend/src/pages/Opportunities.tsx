@@ -19,102 +19,146 @@ import { useCandles } from "../api";
 import {
   demoMode,
   request,
+  stageName,
+  phases,
+  opportunityWindow,
   useOpportunityCandles,
   type Case,
   type Opportunity,
+  type Feature,
 } from "../m2";
 import CandleChart from "../components/CandleChart";
 import QueryNotice from "../components/QueryNotice";
 import M2Notice from "../components/M2Notice";
 import { timestamp } from "../format";
-function OpportunityDetail({ id }: { id: string }) {
+function OpportunityDetail({ selected }: { selected: Opportunity }) {
   const detail = useQuery({
-    queryKey: ["opportunities", id],
+    queryKey: ["opportunities", "detail", selected.symbol],
+    initialData: selected,
+    staleTime: 0,
     queryFn: ({ signal }) =>
       request<Opportunity>(
         "get",
-        `/opportunities/${encodeURIComponent(id)}`,
+        `/opportunities/${encodeURIComponent(selected.symbol)}`,
         undefined,
         signal,
       ),
   });
   const opportunity = detail.data;
+  const bounds = opportunityWindow(opportunity);
   const similar = useQuery({
-    queryKey: ["cases", "search", id],
-    enabled: !!opportunity,
+    queryKey: ["cases", "search", bounds],
     queryFn: ({ signal }) =>
-      request<Case[]>("get", "/cases/search", { opportunity_id: id }, signal),
+      request<Case[]>(
+        "get",
+        "/cases/search",
+        { ...bounds, limit: 10, min_similarity: 0.7 },
+        signal,
+      ),
   });
-  const candles = useCandles(demoMode ? "" : opportunity?.symbol || "", "1m");
-  const mockCandles = useOpportunityCandles(opportunity?.symbol);
+  const features = useQuery({
+    queryKey: ["features", bounds],
+    queryFn: ({ signal }) =>
+      request<Feature[]>(
+        "get",
+        `/features/${encodeURIComponent(opportunity.symbol)}`,
+        { start_time: bounds.start_time, end_time: bounds.end_time, limit: 60 },
+        signal,
+      ),
+  });
+  const candles = useCandles(demoMode ? "" : opportunity.symbol, "1m");
+  const mockCandles = useOpportunityCandles(opportunity.symbol);
   const rows = demoMode ? mockCandles.data || [] : candles.data?.items || [];
+  const current = features.data?.[0];
   return (
     <>
       <QueryNotice query={detail} />
-      {opportunity && (
-        <Space direction="vertical" style={{ width: "100%" }}>
-          <Typography.Paragraph>{opportunity.summary}</Typography.Paragraph>
-          <Tag color="blue">当前阶段：{opportunity.stage}</Tag>
-          <Table
-            pagination={false}
-            rowKey="name"
-            scroll={{ x: 400 }}
-            dataSource={Object.entries(opportunity.features).map(
-              ([name, value]) => ({
-                name,
-                current: value,
-                historical: opportunity.historical_features[name],
-              }),
-            )}
+      <Space direction="vertical" style={{ width: "100%" }}>
+        <Tag color="blue">
+          当前识别：{stageName(opportunity.stage)} ·{" "}
+          {timestamp(opportunity.observed_at)}
+        </Tag>
+        <Card title="当前特征">
+          <QueryNotice query={features} />
+          {current ? (
+            <Table
+              pagination={false}
+              rowKey="name"
+              dataSource={Object.entries(current)
+                .filter(([, value]) => typeof value === "number")
+                .map(([name, value]) => ({ name, value }))}
+              columns={[
+                { title: "特征", dataIndex: "name" },
+                { title: "当前值", dataIndex: "value" },
+              ]}
+              scroll={{ x: 400 }}
+            />
+          ) : (
+            <Empty description="该机会窗口没有特征数据" />
+          )}
+        </Card>
+        <Card title="K 线与阶段识别">
+          <QueryNotice query={demoMode ? mockCandles : candles} />
+          {rows.length ? (
+            <CandleChart
+              rows={rows}
+              currentStage={{
+                time: opportunity.observed_at,
+                label: stageName(opportunity.stage),
+              }}
+            />
+          ) : (
+            <Empty description="当前暂无 K 线数据" />
+          )}
+        </Card>
+        <Card title="相似历史案例">
+          <QueryNotice query={similar} />
+          <Typography.Paragraph type="secondary">
+            对比最近一小时的当前特征与历史阶段证据。API
+            未提供历史数值快照；相似度及历史标注不代表未来收益概率。
+          </Typography.Paragraph>
+          <Table<Case>
+            rowKey="id"
+            loading={similar.isPending}
+            dataSource={similar.data || []}
+            pagination={{ pageSize: 5 }}
+            scroll={{ x: 600 }}
             columns={[
-              { title: "特征", dataIndex: "name" },
-              { title: "当前值", dataIndex: "current" },
+              { title: "合约", dataIndex: "symbol" },
+              { title: "案例", dataIndex: "title" },
               {
-                title: "历史案例参考值",
-                dataIndex: "historical",
-                render: (value) => value ?? "—",
+                title: "相似度",
+                dataIndex: "similarity",
+                render: (value) => `${(value * 100).toFixed(0)}%`,
+              },
+              {
+                title: "历史结果",
+                dataIndex: "outcome",
+                render: (value) =>
+                  value === "success"
+                    ? "成功"
+                    : value === "failure"
+                      ? "失败"
+                      : "未标注",
               },
             ]}
+            expandable={{
+              expandedRowRender: (item) => (
+                <>
+                  <Typography.Paragraph>
+                    {item.analysis.summary}
+                  </Typography.Paragraph>
+                  <Timeline
+                    items={phases(item.analysis).map((phase) => ({
+                      children: `${phase.stage} · ${timestamp(phase.start_time)} — ${timestamp(phase.end_time)} · ${phase.description}`,
+                    }))}
+                  />
+                </>
+              ),
+            }}
           />
-          <Card title="K 线与阶段识别">
-            <QueryNotice query={demoMode ? mockCandles : candles} />
-            {rows.length ? (
-              <CandleChart rows={rows} phases={opportunity.phases} />
-            ) : (
-              <Empty description="当前暂无 K 线数据" />
-            )}
-            <Timeline
-              items={opportunity.phases.map((phase) => ({
-                children: `${phase.stage} · ${timestamp(phase.start_time)} — ${timestamp(phase.end_time)} · ${phase.description}`,
-              }))}
-            />
-          </Card>
-          <Card title="相似历史案例">
-            <QueryNotice query={similar} />
-            <Table<Case>
-              rowKey="id"
-              loading={similar.isPending}
-              dataSource={similar.data || []}
-              pagination={{ pageSize: 5 }}
-              scroll={{ x: 500 }}
-              columns={[
-                { title: "合约", dataIndex: "symbol" },
-                { title: "案例", dataIndex: "summary" },
-                {
-                  title: "相似度",
-                  dataIndex: "similarity",
-                  render: (value) => `${(value * 100).toFixed(0)}%`,
-                },
-                {
-                  title: "成功率",
-                  dataIndex: "success_rate",
-                  render: (value) => `${(value * 100).toFixed(0)}%`,
-                },
-              ]}
-            />
-          </Card>
-        </Space>
-      )}
+        </Card>
+      </Space>
     </>
   );
 }
@@ -124,15 +168,23 @@ export default function Opportunities() {
   const [hours, setHours] = useState(24);
   const [selected, setSelected] = useState<Opportunity>();
   const query = useQuery({
-    queryKey: ["opportunities", { confidence, success, hours }],
+    queryKey: ["opportunities", "list", confidence],
     queryFn: ({ signal }) =>
       request<Opportunity[]>(
         "get",
         "/opportunities",
-        { min_confidence: confidence, min_success_rate: success, hours },
+        { min_confidence: confidence, limit: 1000 },
         signal,
       ),
   });
+  const visible = (query.data || []).filter(
+    (item) =>
+      (success === 0 ||
+        (item.historical_success_rate != null &&
+          item.historical_success_rate >= success)) &&
+      Date.parse(item.observed_at) >= Date.now() - hours * 3600000 &&
+      Date.parse(item.expires_at) > Date.now(),
+  );
   return (
     <>
       <Typography.Title level={2}>机会发现</Typography.Title>
@@ -175,16 +227,20 @@ export default function Opportunities() {
           />
         </Space>
       </Space>
+      <Typography.Paragraph type="secondary">
+        成功率与时间范围在本次返回的最多 1000
+        条候选中筛选；仅展示未过期机会。未标注案例不参与成功率估计。
+      </Typography.Paragraph>
       <QueryNotice query={query} />
       {query.isPending ? (
         <Card loading />
-      ) : query.data?.length ? (
+      ) : visible.length ? (
         <Row gutter={[16, 16]}>
-          {query.data.map((opportunity) => (
-            <Col key={opportunity.id} xs={24} md={12} xl={8}>
+          {visible.map((opportunity) => (
+            <Col key={opportunity.symbol} xs={24} md={12} xl={8}>
               <Card
                 title={opportunity.symbol}
-                extra={<Tag color="blue">{opportunity.stage}</Tag>}
+                extra={<Tag color="blue">{stageName(opportunity.stage)}</Tag>}
               >
                 <Row gutter={16}>
                   <Col span={12}>
@@ -198,17 +254,26 @@ export default function Opportunities() {
                   <Col span={12}>
                     <Statistic
                       title="历史成功率"
-                      value={opportunity.success_rate * 100}
+                      value={
+                        opportunity.historical_success_rate == null
+                          ? "未标注"
+                          : opportunity.historical_success_rate * 100
+                      }
                       precision={0}
-                      suffix="%"
+                      suffix={
+                        opportunity.historical_success_rate == null
+                          ? undefined
+                          : "%"
+                      }
                     />
                   </Col>
                 </Row>
                 <Typography.Paragraph style={{ marginTop: 16 }}>
-                  {opportunity.summary}
+                  已标注案例：{opportunity.labeled_cases} · 历史匹配：
+                  {opportunity.matches.length}
                 </Typography.Paragraph>
                 <Typography.Paragraph type="secondary">
-                  发现于 {timestamp(opportunity.detected_at)}
+                  发现于 {timestamp(opportunity.observed_at)}
                 </Typography.Paragraph>
                 <Button onClick={() => setSelected(opportunity)}>
                   查看机会详情
@@ -228,7 +293,9 @@ export default function Opportunities() {
         width={1000}
         destroyOnHidden
       >
-        {selected && <OpportunityDetail key={selected.id} id={selected.id} />}
+        {selected && (
+          <OpportunityDetail key={selected.symbol} selected={selected} />
+        )}
       </Modal>
     </>
   );

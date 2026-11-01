@@ -1,16 +1,11 @@
-import { Progress, Space, Tag } from "antd";
+import { Progress, Space, Tag, Typography } from "antd";
 import type { Analysis } from "../m2";
 export default function AnalysisProgress({ task }: { task: Analysis }) {
+  const completed = task.status === "completed";
   return (
     <Space direction="vertical" style={{ width: 150 }}>
       <Tag
-        color={
-          task.status === "failed"
-            ? "red"
-            : task.status === "completed"
-              ? "green"
-              : "blue"
-        }
+        color={task.status === "failed" ? "red" : completed ? "green" : "blue"}
       >
         {
           {
@@ -23,15 +18,21 @@ export default function AnalysisProgress({ task }: { task: Analysis }) {
       </Tag>
       <Progress
         size="small"
-        percent={Math.max(0, Math.min(100, task.progress))}
+        percent={completed ? 100 : 0}
+        showInfo={completed}
         status={
           task.status === "failed"
             ? "exception"
-            : task.status === "completed"
+            : completed
               ? "success"
               : "active"
         }
       />
+      {!completed && task.status !== "failed" && (
+        <Typography.Text type="secondary">
+          等待任务完成 · 无百分比数据
+        </Typography.Text>
+      )}
     </Space>
   );
 }
