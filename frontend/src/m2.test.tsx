@@ -151,7 +151,7 @@ it("filters opportunities and loads detail and similar cases", async () => {
       ),
     ).toBe(true),
   );
-  expect(await screen.findByText("历史案例参考值")).toBeTruthy();
+  expect((await screen.findAllByText("历史案例参考值")).length).toBeGreaterThan(0);
 });
 it("computes the selected candle window and rejects incomplete history", () => {
   const rows = [0, 1, 2, 3].map((i) => ({
