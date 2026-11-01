@@ -83,6 +83,11 @@ TEST_DATABASE_URL=postgresql://... TEST_REDIS_URL=redis://localhost:6379/15 \
 `SELECT count(*) FROM trades;`、`SELECT * FROM quality_logs ORDER BY time DESC LIMIT 10;`
 以及 `redis-cli GET latest:trade:BTC-USDT-SWAP`。数据库初始化/依赖测试不能代替此实网验收。
 
+## Console API
+
+FastAPI REST, WebSocket, health and Prometheus endpoints are available through
+the `api` Compose service. See [API usage and configuration](docs/API.md).
+
 ## React Web 控制台
 
 ```bash
@@ -123,11 +128,11 @@ docker compose up --build frontend
 `docker/frontend.Dockerfile` 使用 Node multi-stage 构建和 nginx:alpine 提供静态文件，
 支持 SPA 深链接以及 HTTP/WebSocket 同源反向代理。nginx 的运行时环境变量
 `API_UPSTREAM` 默认是 `api:8000`，Compose 可用 `FRONTEND_API_UPSTREAM` 覆盖。
-**需先集成并启动第二阶段 A 的 API 服务**；第一阶段的 `backend` 服务仅是采集器。
+Compose 中 `api` 服务提供第二阶段 A 的接口；`backend` 服务负责采集。
 API 与 frontend 应位于相同 Docker 网络，并在 API 的 CORS/Origin 配置中加入
 `http://localhost:8080`（或实际访问源）。外部 API 的 upstream 只填 `主机:端口`。
 
-第二阶段 API 默认 Origin 与 Vite 端口不同，启动 API 前设置：
+`.env.example` 已包含默认控制台端口；如使用已有 `.env`，请在启动 API 前设置：
 
 ```dotenv
 API_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost:8080","http://127.0.0.1:8080"]
@@ -139,3 +144,21 @@ API_CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localh
 依赖审计：React Router 6 当前仍有中等级上游告警，npm 建议升级到 v7；本阶段按
 指定技术栈保留 v6。控制台使用静态路由、编码后的合约路径和 BrowserRouter，
 未使用 SSR hydration。后续升级路由主版本时需重新验证导航行为。
+
+### 前后端真实集成验收
+
+提供可选联调测试 `frontend/src/live.integration.test.tsx`（默认测试时跳过），
+使用真实 nginx → FastAPI → TimescaleDB / Redis，不使用 API mock。
+在**空的、可丢弃的测试数据库**初始化 `scripts/init_db.sql` 后，加载
+`frontend/tests/acceptance.sql`，并清除测试 Redis 的 `api:status` 缓存。
+不要向生产或采集数据库加载验收数据。测试 API 的 `API_CORS_ORIGINS` 需包含
+jsdom 使用的 `http://localhost:3000`。
+
+```bash
+# 在已准备好的隔离验收环境中运行；URL 指向 nginx frontend 服务
+CONSOLE_TEST_URL=http://127.0.0.1:5184 npm run test:integration --prefix frontend
+```
+
+测试覆盖：120 根 K 线和 5m/1h/1d 聚合、质量统计、严重程度过滤及服务端分页、
+真实状态查询的缓存复用和 30 秒轮询，以及通过 nginx WebSocket 升级的榜单初始快照
+和后续推送。测试约需一分钟，必须使用相同验收数据集。

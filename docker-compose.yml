@@ -19,8 +19,9 @@ services:
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--maxmemory", "1536mb", "--maxmemory-policy", "allkeys-lru"]
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    # Redis 仅供 Docker 网络内部访问，不暴露到宿主机
+    # ports:
+    #   - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -42,12 +43,30 @@ services:
         condition: service_healthy
     stop_grace_period: 60s
     restart: unless-stopped
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
   frontend:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
     environment:
       API_UPSTREAM: ${FRONTEND_API_UPSTREAM:-api:8000}
+    depends_on:
+      - api
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
     restart: unless-stopped
