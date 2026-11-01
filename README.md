@@ -162,3 +162,9 @@ CONSOLE_TEST_URL=http://127.0.0.1:5184 npm run test:integration --prefix fronten
 测试覆盖：120 根 K 线和 5m/1h/1d 聚合、质量统计、严重程度过滤及服务端分页、
 真实状态查询的缓存复用和 30 秒轮询，以及通过 nginx WebSocket 升级的榜单初始快照
 和后续推送。测试约需一分钟，必须使用相同验收数据集。
+
+## M2 后端：特征识别与机会发现
+
+M2 的数据库升级、环境配置、特征算法、异步分析、案例搜索、容器管理和机会 API
+详见 [M2 API 与运行指南](docs/M2_API.md)。交互接口文档位于 `/docs`。
+已有 M1 数据卷须手动执行 `scripts/migrate_m2.sql`，并使用含 pgvector 的数据库镜像。

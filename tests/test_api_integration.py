@@ -35,6 +35,7 @@ def test_api_real_database_and_redis_broadcast():
         database_url=os.environ["TEST_DATABASE_URL"],
         redis_url=os.environ["TEST_REDIS_URL"],
         write_retry_attempts=1,
+        m2_scheduler_enabled=False,  # Keep API regression independent of OKX jobs.
     )
     symbol = f"TEST{uuid4().hex.upper()}-USDT-SWAP"
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0) - timedelta(

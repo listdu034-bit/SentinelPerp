@@ -17,6 +17,16 @@ class Settings(BaseSettings):
         "http://localhost:5173",  # Vite dev server
         "http://localhost:8080",  # Alternative frontend port
     ]
+    m2_scheduler_enabled: bool = True
+    feature_concurrency: int = Field(4, ge=1, le=32)
+    analysis_concurrency: int = Field(2, ge=1, le=16)
+    analysis_queue_size: int = Field(100, ge=1, le=1000)
+    ai_timeout_seconds: float = Field(120, gt=0, le=600)
+    openai_api_key: SecretStr = SecretStr("")
+    openai_analysis_model: str = "gpt-4o-mini"
+    openai_embedding_model: str = "text-embedding-3-small"
+    opportunity_min_quality: float = Field(0.7, ge=0, le=1)
+    opportunity_min_similarity: float = Field(0.8, ge=0, le=1)
     log_level: str = "INFO"
     okx_market_filter: str = "*-USDT-SWAP"
     okx_rest_url: str = "https://www.okx.com"
@@ -52,6 +62,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_limits(self) -> "Settings":
         """Reject contradictory pool and buffer limits at startup."""
+        if self.m2_scheduler_enabled and self.db_pool_size < 3:
+            raise ValueError("M2 scheduler requires db_pool_size >= 3")
         if self.db_pool_min_size > self.db_pool_size:
             raise ValueError("db_pool_min_size exceeds db_pool_size")
         if self.buffer_max_size < self.batch_size:

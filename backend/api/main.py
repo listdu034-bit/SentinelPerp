@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi_pagination import add_pagination
+from openai import OpenAIError
 from prometheus_fastapi_instrumentator import Instrumentator
 from redis.exceptions import RedisError
 from slowapi import _rate_limit_exceeded_handler
@@ -25,6 +26,7 @@ from backend.api.routes import (
     health,
     instruments,
     liquidations,
+    m2,
     open_interest,
     quality,
     status,
@@ -32,6 +34,7 @@ from backend.api.routes import (
 )
 from backend.collector.instrument_discovery import InstrumentDiscovery
 from backend.config.settings import get_settings
+from backend.features.runtime import M2Runtime
 from backend.storage.redis_client import RedisClient
 from backend.storage.timescale_client import TimescaleClient
 
@@ -44,23 +47,31 @@ async def lifespan(app):
     app.state.database, app.state.redis = database, redis
     app.state.discovery, app.state.catalog_lock = discovery, asyncio.Lock()
     publisher = None
+    runtime = None
     try:
         await database.connect()
         await redis.connect()
+        runtime = M2Runtime(database.pool, discovery, settings)
+        app.state.m2 = runtime
+        runtime.start()
         publisher = asyncio.create_task(websocket.market_publisher(app))
         yield
     finally:
-        if publisher:
-            publisher.cancel()
-            with suppress(asyncio.CancelledError):
-                await publisher
         try:
-            await discovery.close()
+            if runtime:
+                await runtime.close()
         finally:
+            if publisher:
+                publisher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await publisher
             try:
-                await redis.close()
+                await discovery.close()
             finally:
-                await database.close()
+                try:
+                    await redis.close()
+                finally:
+                    await database.close()
 
 
 def create_app(settings=None):
@@ -80,7 +91,7 @@ def create_app(settings=None):
         CORSMiddleware,
         allow_origins=app.state.settings.api_cors_origins,
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["*"],
     )
 
@@ -110,7 +121,7 @@ def create_app(settings=None):
     @app.exception_handler(Exception)
     async def unexpected_error(request: Request, exc: Exception):
         unavailable = isinstance(
-            exc, (asyncpg.PostgresError, RedisError, OSError, TimeoutError)
+            exc, (asyncpg.PostgresError, RedisError, OpenAIError, OSError, TimeoutError)
         )
         code = 503 if unavailable else 500
         logging.getLogger(__name__).exception("API request failed")
@@ -126,7 +137,13 @@ def create_app(settings=None):
             status_code=code,
         )
 
-    for error_type in (asyncpg.PostgresError, RedisError, OSError, TimeoutError):
+    for error_type in (
+        asyncpg.PostgresError,
+        RedisError,
+        OpenAIError,
+        OSError,
+        TimeoutError,
+    ):
         app.add_exception_handler(error_type, unexpected_error)
 
     app.include_router(health.router, tags=["Health"])
@@ -143,6 +160,7 @@ def create_app(settings=None):
         app.include_router(
             module.router, prefix="/api/v1", tags=[module.__name__.split(".")[-1]]
         )
+    app.include_router(m2.router, prefix="/api", tags=["M2"])
     app.include_router(websocket.router)
     add_pagination(app)
     Instrumentator(

@@ -1,6 +1,8 @@
 services:
   timescaledb:
-    image: timescale/timescaledb:2.17.2-pg15
+    build:
+      context: .
+      dockerfile: docker/timescaledb.Dockerfile
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-sentinelperp}
       POSTGRES_USER: ${POSTGRES_USER:-sentinel}
@@ -8,6 +10,7 @@ services:
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+      - ./scripts/migrate_m2.sql:/docker-entrypoint-initdb.d/002-m2.sql:ro
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
