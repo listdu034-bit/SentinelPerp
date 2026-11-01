@@ -82,3 +82,8 @@ TEST_DATABASE_URL=postgresql://... TEST_REDIS_URL=redis://localhost:6379/15 \
 实网验收运行 Compose 后，检查 `collector_status` 的连接数和各类 `last_message`、
 `SELECT count(*) FROM trades;`、`SELECT * FROM quality_logs ORDER BY time DESC LIMIT 10;`
 以及 `redis-cli GET latest:trade:BTC-USDT-SWAP`。数据库初始化/依赖测试不能代替此实网验收。
+
+## Console API
+
+FastAPI REST, WebSocket, health and Prometheus endpoints are available through
+the `api` Compose service. See [API usage and configuration](docs/API.md).

@@ -17,6 +17,7 @@ if old then
     if previous.time > ARGV[1] then return 0 end
 end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+redis.call('PUBLISH', ARGV[4], ARGV[2])
 return 1
 """
 
@@ -71,6 +72,7 @@ class RedisClient:
                     payload["time"],
                     json.dumps(payload),
                     self.settings.redis_latest_ttl,
+                    f"events:{kind}:{event.symbol}",
                 )
 
     async def get_latest(self, kind: str, symbol: str) -> dict | None:
