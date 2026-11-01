@@ -19,8 +19,9 @@ services:
   redis:
     image: redis:7.4-alpine
     command: ["redis-server", "--maxmemory", "1536mb", "--maxmemory-policy", "allkeys-lru"]
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    # Redis 仅供 Docker 网络内部访问，不暴露到宿主机
+    # ports:
+    #   - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
