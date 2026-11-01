@@ -12,7 +12,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    api_cors_origins: list[str] = ["http://localhost:3000"]
+    api_cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",  # Vite dev server
+        "http://localhost:8080",  # Alternative frontend port
+    ]
     log_level: str = "INFO"
     okx_market_filter: str = "*-USDT-SWAP"
     okx_rest_url: str = "https://www.okx.com"
