@@ -1,0 +1,34 @@
+body {
+  margin: 0;
+}
+.brand {
+  padding: 28px 24px;
+  color: white;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.8;
+}
+.header {
+  background: #fff;
+  padding: 0 32px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border-bottom: 1px solid #edf0f4;
+}
+.content {
+  padding: 24px 32px;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .content {
+    padding: 20px 16px;
+  }
+  .header {
+    padding: 0 16px;
+  }
+  .header > :last-child {
+    display: none;
+  }
+}
