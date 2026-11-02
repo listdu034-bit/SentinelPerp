@@ -17,6 +17,13 @@ class Settings(BaseSettings):
         "http://localhost:5173",  # Vite dev server
         "http://localhost:8080",  # Alternative frontend port
     ]
+    # JWT Authentication
+    api_auth_username: str = Field("admin", description="API username")
+    api_auth_password: SecretStr = Field(
+        SecretStr("changeme"), description="API password"
+    )
+    api_jwt_secret: SecretStr = Field(SecretStr(""), description="JWT signing secret")
+    api_jwt_ttl_seconds: int = Field(3600, gt=0, description="JWT expiry seconds")
     m2_scheduler_enabled: bool = True
     feature_concurrency: int = Field(4, ge=1, le=32)
     analysis_concurrency: int = Field(2, ge=1, le=16)

@@ -19,6 +19,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException
 
 from backend.api import websocket
+from backend.api.auth import router as auth_router, users_router
 from backend.api.limiter import limiter
 from backend.api.routes import (
     candles,
@@ -145,6 +146,10 @@ def create_app(settings=None):
         TimeoutError,
     ):
         app.add_exception_handler(error_type, unexpected_error)
+
+    # Authentication routes
+    app.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+    app.include_router(users_router, prefix="/users", tags=["Users"])
 
     app.include_router(health.router, tags=["Health"])
     for module in (
