@@ -13,6 +13,8 @@ import {
   useQualitySummary,
   useStatus,
 } from "./api";
+import axios from "axios";
+import { setToken } from "./session";
 import { useMarket } from "./market";
 import { candleSeries } from "./components/CandleChart";
 import type { Page, QualityLogResponse, SystemStatusResponse } from "./types";
@@ -20,7 +22,18 @@ const base = process.env.CONSOLE_TEST_URL;
 describe.skipIf(!base)(
   "live frontend/nginx/FastAPI/TimescaleDB/Redis integration",
   () => {
-    beforeAll(() => {
+    beforeAll(async () => {
+      const username = process.env.CONSOLE_TEST_USERNAME;
+      const password = process.env.CONSOLE_TEST_PASSWORD;
+      if (!username || !password)
+        throw new Error(
+          "Set CONSOLE_TEST_USERNAME and CONSOLE_TEST_PASSWORD for authenticated integration tests",
+        );
+      const { data } = await axios.post(
+        `${base}/auth/jwt/login`,
+        new URLSearchParams({ username, password }),
+      );
+      setToken(data.access_token);
       http.defaults.baseURL = `${base}/api/v1`;
       vi.stubEnv("VITE_WS_BASE_URL", base!.replace(/^http/, "ws"));
     });

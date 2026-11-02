@@ -32,6 +32,9 @@ pytestmark = pytest.mark.skipif(
 def test_api_real_database_and_redis_broadcast():
     settings = Settings(
         _env_file=None,
+        api_auth_username="integration",
+        api_auth_password="integration-password",
+        api_jwt_secret="integration-test-signing-key-" * 2,
         database_url=os.environ["TEST_DATABASE_URL"],
         redis_url=os.environ["TEST_REDIS_URL"],
         write_retry_attempts=1,
@@ -113,6 +116,16 @@ def test_api_real_database_and_redis_broadcast():
     app = create_app(settings)
     try:
         with TestClient(app) as client:
+            login = client.post(
+                "/auth/jwt/login",
+                data={
+                    "username": "integration",
+                    "password": "integration-password",
+                },
+            )
+            assert login.status_code == 200
+            token = login.json()["access_token"]
+            client.headers["Authorization"] = f"Bearer {token}"
             assert client.get("/health/detailed").status_code == 200
             for resource in ("trades", "funding", "open-interest", "liquidations"):
                 response = client.get(f"/api/v1/{resource}/{symbol}")
@@ -136,14 +149,25 @@ def test_api_real_database_and_redis_broadcast():
             assert response.status_code == 200, response.text
             assert response.json()["database"]["table_bytes"]["trades"] > 0
             with client.websocket_connect(f"/ws/trades/{symbol}") as ws:
+                ws.send_json({"type": "authenticate", "token": token})
                 assert ws.receive_json()["type"] == "subscribed"
                 client.portal.call(app.state.redis.set_latest, "trade", trade)
                 event = ws.receive_json()
                 assert event["type"] == "trade" and event["data"]["price"] == 123.125
             with client.websocket_connect("/ws/market") as ws:
+                ws.send_json({"type": "authenticate", "token": token})
                 snapshot = ws.receive_json()
                 assert snapshot["type"] == "market"
                 assert "status" in snapshot and len(snapshot["gainers"]) <= 10
+            assert client.post("/auth/jwt/logout").status_code == 204
+            client.headers.pop("Authorization")
+            assert client.get("/users/me").status_code == 401
+            # Login again to verify the protected metrics endpoint.
+            token = client.post(
+                "/auth/jwt/login",
+                data={"username": "integration", "password": "integration-password"},
+            ).json()["access_token"]
+            client.headers["Authorization"] = f"Bearer {token}"
             metrics = client.get("/metrics").text
             assert (
                 "http_requests_total" in metrics

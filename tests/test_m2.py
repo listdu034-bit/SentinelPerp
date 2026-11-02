@@ -15,6 +15,7 @@ from prometheus_client import REGISTRY
 
 from backend.analysis.models import AnalysisRequest
 from backend.analysis.service import FeatureExtractionService
+from backend.api.auth import current_user
 from backend.api.dependencies import get_db
 from backend.api.main import create_app
 from backend.api.routes.m2 import CaseRequest, get_runtime
@@ -342,6 +343,7 @@ def api():
     if collector is not None:
         REGISTRY.unregister(collector)
     app = create_app(Settings(_env_file=None, m2_scheduler_enabled=False))
+    app.dependency_overrides[current_user] = lambda: {"sub": "test"}
     db = pool()
     db.fetchrow = AsyncMock(return_value=None)
     runtime = SimpleNamespace(

@@ -9,11 +9,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import WebSocket
 from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 from redis.exceptions import ConnectionError as RedisConnectionError
 from starlette.websockets import WebSocketDisconnect
 
+from backend.api.auth import current_user, socket_user
 from backend.api.dependencies import get_db, get_redis
 from backend.api.limiter import limiter
 from backend.api.main import create_app
@@ -66,6 +68,17 @@ def clean_inprogress_metric():
 def api():
     limiter.reset()
     app = create_app(Settings(_env_file=None))
+    app.dependency_overrides[current_user] = lambda: {"sub": "test"}
+
+    async def test_socket(ws: WebSocket):
+        origin = ws.headers.get("origin")
+        if origin and origin not in ws.app.state.settings.api_cors_origins:
+            from fastapi import WebSocketException
+
+            raise WebSocketException(code=1008)
+        await ws.accept()
+
+    app.dependency_overrides[socket_user] = test_socket
     db = Database()
     redis = SimpleNamespace(get=AsyncMock(return_value=None), set=AsyncMock())
 
@@ -318,8 +331,8 @@ def test_websocket_reject_invalid_symbol_and_origin(api):
         ("/ws/market", {"origin": "https://untrusted.example"}),
     ]:
         with pytest.raises(WebSocketDisconnect) as error:
-            with TestClient(api[0]).websocket_connect(path, headers=headers):
-                pass
+            with TestClient(api[0]).websocket_connect(path, headers=headers) as ws:
+                ws.receive_json()
         assert error.value.code == 1008
 
 

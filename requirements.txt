@@ -15,7 +15,8 @@ fastapi-pagination>=0.15.0,<0.15.10
 slowapi>=0.1.9
 python-multipart>=0.0.6
 prometheus-fastapi-instrumentator>=6.1.0
-python-jose[cryptography]>=3.3.0
+python-jose[cryptography]==3.5.0
+passlib==1.7.4
 sqlalchemy>=2.0,<3  # required by fastapi-pagination asyncpg extension
 
 # M2: scheduling, numerical features, structured analysis and vector search.

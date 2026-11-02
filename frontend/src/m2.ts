@@ -1,4 +1,5 @@
 import axios from "axios";
+import { authenticated } from "./session";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CandleResponse } from "./types";
 import { mockRequest } from "./m2Mock";
@@ -80,10 +81,10 @@ export interface SaveCase {
   tags?: string[];
 }
 export const demoMode = import.meta.env.VITE_M2_MOCK === "true";
-export const m2Http = axios.create({
+export const m2Http = authenticated(axios.create({
   baseURL: import.meta.env.VITE_M2_API_BASE_URL || "/api",
   timeout: 15000,
-});
+}));
 export async function request<T>(
   method: "get" | "post",
   path: string,

@@ -5,6 +5,13 @@ export default defineConfig(({ mode }) => {
   const target = env.API_PROXY_TARGET || "http://127.0.0.1:8000";
   return {
     plugins: [react()],
-    server: { proxy: { "/api": { target }, "/ws": { target, ws: true } } },
+    server: {
+      proxy: {
+        "/auth": { target },
+        "/users": { target },
+        "/api": { target },
+        "/ws": { target, ws: true },
+      },
+    },
   };
 });

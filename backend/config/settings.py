@@ -12,6 +12,11 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    api_auth_username: str = ""
+    api_auth_password: SecretStr = SecretStr("")
+    api_jwt_secret: SecretStr = SecretStr("")
+    api_jwt_ttl_seconds: int = Field(3600, ge=60, le=86400)
+
     api_cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",  # Vite dev server
@@ -62,6 +67,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_limits(self) -> "Settings":
         """Reject contradictory pool and buffer limits at startup."""
+        if self.api_auth_username and self.api_auth_password.get_secret_value():
+            if len(self.api_jwt_secret.get_secret_value()) < 32:
+                raise ValueError("API_JWT_SECRET must contain at least 32 characters")
         if self.m2_scheduler_enabled and self.db_pool_size < 3:
             raise ValueError("M2 scheduler requires db_pool_size >= 3")
         if self.db_pool_min_size > self.db_pool_size:
