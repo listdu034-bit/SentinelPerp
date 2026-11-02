@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { createChart, type UTCTimestamp } from "lightweight-charts";
+import type { Phase } from "../m2";
 import type { CandleResponse } from "../types";
 export function candleSeries(rows: CandleResponse[]) {
   const unique = new Map<number, CandleResponse>();
@@ -21,7 +22,15 @@ export function candleSeries(rows: CandleResponse[]) {
       close: row.close,
     }));
 }
-export default function CandleChart({ rows }: { rows: CandleResponse[] }) {
+export default function CandleChart({
+  rows,
+  phases = [],
+  currentStage,
+}: {
+  rows: CandleResponse[];
+  phases?: Phase[];
+  currentStage?: { time: string; label: string };
+}) {
   const container = useRef<HTMLDivElement>(null);
   const series =
     useRef<
@@ -53,13 +62,46 @@ export default function CandleChart({ rows }: { rows: CandleResponse[] }) {
     };
   }, []);
   useEffect(() => {
-    series.current?.setData(candleSeries(rows));
+    const data = candleSeries(rows);
+    series.current?.setData(data);
+    const markers = new Map<number, string>();
+    for (const phase of phases) {
+      const start = Date.parse(phase.start_time) / 1000;
+      if (
+        !Number.isFinite(start) ||
+        !data.length ||
+        start < Number(data[0].time) ||
+        start > Number(data[data.length - 1].time)
+      )
+        continue;
+      const candle = data.find((row) => Number(row.time) >= start);
+      if (candle) markers.set(Number(candle.time), phase.stage);
+    }
+    if (currentStage) {
+      const observed = Date.parse(currentStage.time) / 1000;
+      const candle = [...data]
+        .reverse()
+        .find((row) => Number(row.time) <= observed);
+      if (candle && observed - Number(candle.time) < 120)
+        markers.set(Number(candle.time), `当前识别：${currentStage.label}`);
+    }
+    series.current?.setMarkers(
+      [...markers]
+        .sort(([a], [b]) => a - b)
+        .map(([time, text]) => ({
+          time: time as UTCTimestamp,
+          position: "aboveBar" as const,
+          shape: "arrowDown" as const,
+          color: "#1677ff",
+          text,
+        })),
+    );
     const key = `${rows[0]?.symbol}-${rows[0]?.interval}`;
     if (previousRange.current !== key) {
       chartRef.current?.timeScale().fitContent();
       previousRange.current = key;
     }
-  }, [rows]);
+  }, [rows, phases, currentStage]);
   return (
     <>
       <div ref={container} role="img" aria-label="市场 OHLC K 线图" />

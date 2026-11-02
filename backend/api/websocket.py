@@ -6,14 +6,15 @@ import re
 from contextlib import suppress
 
 from anyio import CancelScope
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from redis.exceptions import RedisError
 
+from backend.api.auth import socket_user, watch_socket_auth
 from backend.api.routes.status import market_snapshot
 from backend.api.schemas import TradeResponse
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(socket_user)])
 
 
 async def send(ws, payload):
@@ -110,13 +111,9 @@ async def market_publisher(app):
 
 
 async def serve(ws, producer):
-    origin = ws.headers.get("origin")
-    if origin and origin not in ws.app.state.settings.api_cors_origins:
-        await ws.close(code=1008)
-        return
-    await ws.accept()
     pong = asyncio.Event()
     tasks = [
+        asyncio.create_task(watch_socket_auth(ws)),
         asyncio.create_task(heartbeat(ws, pong)),
         asyncio.create_task(receive(ws, pong)),
         asyncio.create_task(producer(ws)),

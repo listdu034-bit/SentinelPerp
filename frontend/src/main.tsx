@@ -1,11 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { ConfigProvider } from "antd";
+import { ConfigProvider, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import { queryClient } from "./api";
 import App from "./App";
+import { AuthProvider } from "./auth";
 import "antd/dist/reset.css";
 import "./style.css";
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -13,16 +14,19 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ConfigProvider
       locale={zhCN}
       theme={{
-        token: { colorPrimary: "#176bcb", borderRadius: 8 },
-        components: {
-          Layout: { siderBg: "#101d32" },
-          Menu: { darkItemBg: "#101d32" },
+        algorithm: theme.darkAlgorithm,
+        token: {
+          colorPrimary: "#5eaaff",
+          colorBgBase: "#0b1220",
+          borderRadius: 10,
         },
       }}
     >
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <App />
+          <AuthProvider>
+            <App />
+          </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ConfigProvider>

@@ -1,0 +1,237 @@
+// @vitest-environment jsdom
+import { afterEach, beforeAll, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  configure,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import MockAdapter from "axios-mock-adapter";
+import { analysisWindow, analysisView, m2Http } from "./m2";
+import FeatureAnalysis from "./pages/FeatureAnalysis";
+import Opportunities from "./pages/Opportunities";
+import Rankings from "./pages/Rankings";
+import { windowChange } from "./rankingWindow";
+vi.mock("./market", () => ({
+  useMarket: () => ({
+    connected: true,
+    data: {
+      gainers: [{ symbol: "BTC-USDT-SWAP", change_percent: 5 }],
+      losers: [],
+    },
+  }),
+}));
+vi.mock("./components/CandleChart", () => ({ default: () => <div>K 线</div> }));
+configure({ asyncUtilTimeout: 15000 });
+vi.setConfig({ testTimeout: 60000 });
+beforeAll(() => {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: () => ({
+      matches: false,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+    }),
+  });
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  const original = window.getComputedStyle;
+  // JSDOM has no layout; avoid repeatedly evaluating Ant Design's stylesheet.
+  const computedStyle = original(document.body);
+  window.getComputedStyle = () => computedStyle;
+});
+const clients: QueryClient[] = [];
+const mock = new MockAdapter(m2Http);
+afterEach(() => {
+  cleanup();
+  clients.forEach((client) => client.clear());
+  mock.reset();
+});
+function mount(element: React.ReactNode, path = "/") {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, refetchInterval: false },
+      mutations: { retry: false },
+    },
+  });
+  clients.push(client);
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter
+        initialEntries={[path]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        {element}
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+const task = {
+  id: "a1",
+  symbol: "BTC-USDT-SWAP",
+  start_time: "2026-01-01T00:00:00Z",
+  end_time: "2026-01-02T00:00:00Z",
+  status: "completed",
+  error: null,
+  updated_at: "2026-01-02T00:00:00Z",
+  created_at: "2026-01-01T00:00:00Z",
+  result: {
+    summary: "突破形态",
+    stages: [
+      {
+        stage: "markup",
+        start_time: "2026-01-01T00:00:00Z",
+        end_time: "2026-01-02T00:00:00Z",
+        confidence: 0.8,
+        evidence: "OI 上升",
+      },
+    ],
+    turning_points: [
+      { time: "2026-01-01T01:00:00Z", kind: "breakout", reason: "价格突破" },
+    ],
+  },
+};
+it("submits an analysis with the selected symbol and timeframe", async () => {
+  mock.onGet("/analysis").reply(200, []);
+  mock.onPost("/analysis/create").reply(200, task);
+  mount(<Rankings />);
+  fireEvent.click(await screen.findByRole("button", { name: "添加到分析" }));
+  await waitFor(() => expect(mock.history.post).toHaveLength(1));
+  const body = JSON.parse(mock.history.post[0].data);
+  expect(body.symbol).toBe("BTC-USDT-SWAP");
+  expect(Object.keys(body).sort()).toEqual([
+    "end_time",
+    "start_time",
+    "symbol",
+  ]);
+  expect(Date.parse(body.end_time) - Date.parse(body.start_time)).toBe(
+    24 * 3600000,
+  );
+  expect(Date.parse(body.end_time) % 60000).toBe(0);
+});
+it("loads backend stages and saves only supported case fields", async () => {
+  mock.onGet("/analysis").reply(200, [task]);
+  mock.onGet("/analysis/a1").reply(200, task);
+  mock.onPost("/cases").reply(201, { id: "c1" });
+  mount(<FeatureAnalysis />, "/feature-analysis?id=a1");
+  expect(await screen.findByText("突破形态")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "保存到特征库" }));
+  await screen.findByRole("button", { name: "已保存" });
+  expect(JSON.parse(mock.history.post[0].data)).toEqual({
+    task_id: "a1",
+    title: "BTC-USDT-SWAP 特征案例",
+    outcome: null,
+  });
+  expect(screen.getByText(/评分和标签待后端支持/)).toBeTruthy();
+});
+it("shows save failures and permits retry", async () => {
+  mock.onGet("/analysis").reply(200, [task]);
+  mock.onGet("/analysis/a1").reply(200, task);
+  mock.onPost("/cases").reply(500);
+  mount(<FeatureAnalysis />, "/feature-analysis?id=a1");
+  fireEvent.click(await screen.findByRole("button", { name: "保存到特征库" }));
+  await screen.findByText("Request failed with status code 500");
+  expect(
+    screen
+      .getByRole("button", { name: "保存到特征库" })
+      .hasAttribute("disabled"),
+  ).toBe(false);
+});
+it("filters opportunities and loads detail and similar cases", async () => {
+  const opportunity = {
+    symbol: "BTC-USDT-SWAP",
+    stage: "markup",
+    confidence: 0.9,
+    historical_success_rate: null,
+    labeled_cases: 0,
+    similarity: 0.9,
+    observed_at: new Date(Math.floor(Date.now() / 60000) * 60000).toISOString(),
+    expires_at: new Date(Date.now() + 600000).toISOString(),
+    matches: [],
+  };
+  mock.onGet("/opportunities").reply(200, [opportunity]);
+  mock.onGet("/opportunities/BTC-USDT-SWAP").reply(200, opportunity);
+  mock.onGet("/cases/search").reply(200, []);
+  mock
+    .onGet("/features/BTC-USDT-SWAP")
+    .reply(200, [
+      { symbol: "BTC-USDT-SWAP", time: opportunity.observed_at, oi: 3 },
+    ]);
+  mount(<Opportunities />);
+  fireEvent.mouseDown(screen.getByRole("combobox", { name: "最低置信度" }));
+  fireEvent.click(await screen.findByText("80%"));
+  await waitFor(() =>
+    expect(
+      mock.history.get.some((item) => item.params?.min_confidence === 0.8),
+    ).toBe(true),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "查看机会详情" }));
+  await screen.findByText("相似历史案例");
+  await waitFor(() =>
+    expect(
+      mock.history.get.some(
+        (item) =>
+          item.url === "/cases/search" &&
+          item.params.symbol === "BTC-USDT-SWAP" &&
+          item.params.end_time === opportunity.observed_at &&
+          !item.params.opportunity_id,
+      ),
+    ).toBe(true),
+  );
+  expect((await screen.findAllByText("当前值")).length).toBeGreaterThan(0);
+  expect((await screen.findAllByText("未标注")).length).toBeGreaterThan(0);
+  const listRequest = mock.history.get.find(
+    (item) => item.url === "/opportunities",
+  );
+  expect(Object.keys(listRequest!.params).sort()).toEqual([
+    "limit",
+    "min_confidence",
+  ]);
+});
+it("computes the selected candle window and rejects incomplete history", () => {
+  const rows = [0, 1, 2, 3].map((i) => ({
+    time: `2026-01-01T0${i}:00:00Z`,
+    symbol: "BTC-USDT-SWAP",
+    exchange: "OKX",
+    interval: "1h",
+    open: 100,
+    high: 120,
+    low: 90,
+    close: 110,
+    volume: 100,
+  }));
+  expect(windowChange(rows, 4)).toBeCloseTo(10);
+  expect(windowChange(rows.slice(1), 4)).toBeNull();
+});
+
+it("aligns analysis bounds to minutes and adapts backend stages without fabricated prices", () => {
+  const bounds = analysisWindow(
+    "BTC-USDT-SWAP",
+    "4h",
+    Date.parse("2026-11-01T12:34:56Z"),
+  );
+  expect(bounds).toEqual({
+    symbol: "BTC-USDT-SWAP",
+    start_time: "2026-11-01T08:34:00.000Z",
+    end_time: "2026-11-01T12:34:00.000Z",
+  });
+  const view = analysisView({ ...task, status: "completed" as const });
+  expect(view.result?.phases[0]).toMatchObject({
+    stage: "拉升",
+    description: "OI 上升",
+  });
+  expect(view.result?.turning_points[0]).toMatchObject({
+    kind: "breakout",
+    description: "价格突破",
+  });
+  expect(view.result?.turning_points[0]).not.toHaveProperty("price");
+});

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { authenticated } from "./session";
 import { QueryClient, useQuery } from "@tanstack/react-query";
 import type {
   CandleResponse,
@@ -8,10 +9,10 @@ import type {
   QualitySummary,
   SystemStatusResponse,
 } from "./types";
-export const http = axios.create({
+export const http = authenticated(axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
   timeout: 15000,
-});
+}));
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

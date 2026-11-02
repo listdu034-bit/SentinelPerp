@@ -6,6 +6,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import MockAdapter from "axios-mock-adapter";
 import App from "./App";
 import { http } from "./api";
+vi.mock("./auth", () => ({
+  useAuth: () => ({
+    user: { username: "operator" },
+    loading: false,
+    logout: vi.fn(),
+  }),
+}));
 vi.mock("./market", () => ({
   useMarket: () => ({
     connected: true,
