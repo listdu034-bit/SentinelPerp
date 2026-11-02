@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import MockAdapter from "axios-mock-adapter";
 import App from "./App";
 import { http } from "./api";
+import { authHttp } from "./auth";
+import { getToken, setToken } from "./session";
 vi.mock("./market", () => ({
   useMarket: () => ({
     connected: true,
@@ -37,7 +39,54 @@ beforeAll(() => {
   const original = window.getComputedStyle;
   window.getComputedStyle = (element) => original(element);
 });
-afterEach(cleanup);
+let authMock: MockAdapter;
+beforeEach(() => {
+  setToken("test-token");
+  authMock = new MockAdapter(authHttp);
+  authMock.onGet("/users/me").reply(200, {
+    username: "operator",
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+  });
+});
+afterEach(() => {
+  cleanup();
+  authMock.restore();
+  setToken(null);
+});
+function renderRoute(path: string) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return client;
+}
+it("redirects anonymous protected routes to login without requesting session", async () => {
+  setToken(null);
+  const client = renderRoute("/quality?window=24h");
+  expect(await screen.findByText("登录您的市场分析工作台")).toBeTruthy();
+  expect(authMock.history.get).toHaveLength(0);
+  client.clear();
+});
+it("restores a session and clears the token after logout", async () => {
+  authMock.onPost("/auth/jwt/logout").reply(204);
+  const mock = new MockAdapter(http);
+  mock.onGet("/status").reply(200, {
+    collection: {}, redis: {}, database: {}, quality_score: 100,
+  });
+  const client = renderRoute("/status");
+  expect(await screen.findByText("operator")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "退出登录" }));
+  expect(await screen.findByText("登录您的市场分析工作台")).toBeTruthy();
+  expect(getToken()).toBeNull();
+  client.clear();
+  mock.restore();
+});
 it.each([
   [
     "/status",

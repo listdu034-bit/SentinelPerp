@@ -1,5 +1,5 @@
-import { Suspense, lazy } from "react";
-import { Layout, Menu, Result, Spin, Typography } from "antd";
+import { Suspense, lazy, useState } from "react";
+import { Alert, Button, Layout, Menu, Result, Spin, Typography } from "antd";
 import {
   DashboardOutlined,
   FundOutlined,
@@ -7,6 +7,9 @@ import {
   SafetyCertificateOutlined,
 } from "@ant-design/icons";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth } from "./auth";
+import { errorMessage } from "./api";
+import Login from "./pages/Login";
 const FeatureAnalysis = lazy(() => import("./pages/FeatureAnalysis"));
 const Opportunities = lazy(() => import("./pages/Opportunities"));
 const Status = lazy(() => import("./pages/Status"));
@@ -22,7 +25,29 @@ const items = [
   ["/quality", "数据质量", <SafetyCertificateOutlined />],
 ] as const;
 export default function App() {
-  const { pathname } = useLocation();
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}
+function AuthenticatedApp() {
+  const { user, loading, logout } = useAuth();
+  const location = useLocation();
+  const { pathname } = location;
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+  if (loading) return <Spin size="large" />;
+  if (pathname === "/login") return <Login />;
+  if (!user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ from: pathname + location.search + location.hash }}
+      />
+    );
+  }
   const active = pathname.startsWith("/markets")
     ? "/markets/BTC-USDT-SWAP"
     : pathname;
@@ -54,8 +79,26 @@ export default function App() {
           <Typography.Text type="secondary">
             OKX / USDT PERPETUAL
           </Typography.Text>
+          <Typography.Text>{user.username}</Typography.Text>
+          <Button
+            loading={loggingOut}
+            onClick={async () => {
+              setLogoutError("");
+              setLoggingOut(true);
+              try {
+                await logout();
+              } catch (cause) {
+                setLogoutError(errorMessage(cause));
+              } finally {
+                setLoggingOut(false);
+              }
+            }}
+          >
+            退出登录
+          </Button>
         </Layout.Header>
         <Layout.Content className="content">
+          {logoutError && <Alert type="error" showIcon message={logoutError} />}
           <Suspense fallback={<Spin size="large" />}>
             <Routes>
               <Route path="/" element={<Navigate to="/status" replace />} />
